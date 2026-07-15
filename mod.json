@@ -11,7 +11,7 @@
     "name": "NeuroDash AI",
     "developer": "NeuroDashTeam",
     "description": "An AI bot for Geometry Dash 2.2 that trains itself using Reinforcement Learning and Genetic Neuroevolution, complete with a real-time neural network graph overlay!",
-    "dependencies": [],
+    "dependencies": {},
     "resources": {
         "sprites": []
     },
