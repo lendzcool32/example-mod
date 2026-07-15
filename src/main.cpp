@@ -401,10 +401,8 @@ MultiObstacleInfo scanLevelSensors(PlayLayer* layer) {
     auto* objects = layer->m_objects;
     if (!objects) return info;
 
-    // Use traditional Cocos2d-x CCARRAY_FOREACH for absolute compile safety across all platform toolchains
-    cocos2d::CCObject* obj = nullptr;
-    CCARRAY_FOREACH(objects, obj) {
-        auto* game_obj = static_cast<GameObject*>(obj);
+    // Fixed loop for Geode v5: use Geode's required CCArrayExt range-based loop!
+    for (auto* game_obj : geode::cocos::CCArrayExt<GameObject*>(objects)) {
         if (!game_obj) continue;
 
         float obj_x = game_obj->getPositionX();
@@ -420,9 +418,11 @@ MultiObstacleInfo scanLevelSensors(PlayLayer* layer) {
                         (game_obj->m_objectID == 1 || game_obj->m_objectID == 2 || game_obj->m_objectID == 3 || 
                          game_obj->m_objectID == 4);
                          
-        bool is_ring_pad = (game_obj->m_objectType == GameObjectType::Ring || game_obj->m_objectType == GameObjectType::Pad) || 
-                           (game_obj->m_objectID == 36 || game_obj->m_objectID == 141 || game_obj->m_objectID == 1332 || 
-                            game_obj->m_objectID == 1333 || game_obj->m_objectID == 84);
+        // Checked via 100% reliable physical ID classification to avoid non-existent general Ring/Pad enums!
+        bool is_ring_pad = (game_obj->m_objectID == 36 || game_obj->m_objectID == 141 || game_obj->m_objectID == 84 || 
+                            game_obj->m_objectID == 1022 || game_obj->m_objectID == 1332 || game_obj->m_objectID == 1333 || 
+                            game_obj->m_objectID == 1704 || game_obj->m_objectID == 1751 || game_obj->m_objectID == 35 || 
+                            game_obj->m_objectID == 140 || game_obj->m_objectID == 67 || game_obj->m_objectID == 1331);
 
         float dist = obj_x - player_x;
 
