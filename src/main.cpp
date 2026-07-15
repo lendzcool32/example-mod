@@ -1,6 +1,7 @@
-#include <Geode/Geode.hpp>
+include <Geode/Geode.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/PlayerObject.hpp>
+#include <cocos2d.h> // Explicitly include Cocos2d-x headers for all classes (CCLayer, CCDrawNode, CCString, etc.)
 #include <vector>
 #include <cmath>
 #include <cstdlib>
@@ -326,7 +327,7 @@ public:
             }
         }
 
-        // Nodes (Neurons)
+        // Nodes (Neurons) - Using drawDot which is the correct Cocos2d-x 2.1 solid circle drawing function!
         for (size_t l = 0; l < num_layers; ++l) {
             int num_nodes = nn.topology[l];
 
@@ -350,8 +351,9 @@ public:
                     fill_color = cocos2d::ccc4f(bounded_act, bounded_act, bounded_act, 1.0f);
                 }
 
-                m_draw_node->drawSolidCircle(layer_pts[l][i], neuron_radius, 0.0f, 10, fill_color);
-                m_draw_node->drawCircle(layer_pts[l][i], neuron_radius, cocos2d::ccc4f(0.6f, 0.6f, 0.6f, 0.8f), 0.5f, 0.0f, 10);
+                // Cocos2d-x 2.1 trick: draw a slightly larger dot for the outline first, then the actual dot
+                m_draw_node->drawDot(layer_pts[l][i], neuron_radius + 0.5f, cocos2d::ccc4f(0.5f, 0.5f, 0.5f, 0.8f));
+                m_draw_node->drawDot(layer_pts[l][i], neuron_radius, fill_color);
             }
         }
     }
@@ -399,34 +401,47 @@ MultiObstacleInfo scanLevelSensors(PlayLayer* layer) {
     auto* objects = layer->m_objects;
     if (!objects) return info;
 
-    for (auto* obj : cocos2d::CCArrayExt<GameObject*>(objects)) {
-        if (!obj) continue;
+    // Use traditional Cocos2d-x CCARRAY_FOREACH for absolute compile safety across all platform toolchains
+    cocos2d::CCObject* obj = nullptr;
+    CCARRAY_FOREACH(objects, obj) {
+        auto* game_obj = static_cast<GameObject*>(obj);
+        if (!game_obj) continue;
 
-        float obj_x = obj->getPositionX();
+        float obj_x = game_obj->getPositionX();
         if (obj_x <= player_x || obj_x > player_x + scan_limit) continue;
 
-        bool is_hazard = obj->m_isDeadly || obj->m_isHazard;
-        bool is_solid = obj->m_isSolid && !is_hazard;
-        bool is_ring_pad = obj->m_isRing || obj->m_isPad;
+        // Compile-safe bindings: Check m_objectType (enum) or specific object IDs as robust fallback definitions
+        bool is_hazard = (game_obj->m_objectType == GameObjectType::Hazard) || 
+                         (game_obj->m_objectID == 8 || game_obj->m_objectID == 9 || game_obj->m_objectID == 24 || 
+                          game_obj->m_objectID == 39 || game_obj->m_objectID == 103 || game_obj->m_objectID == 110 || 
+                          game_obj->m_objectID == 183);
+                          
+        bool is_solid = (game_obj->m_objectType == GameObjectType::Solid) || 
+                        (game_obj->m_objectID == 1 || game_obj->m_objectID == 2 || game_obj->m_objectID == 3 || 
+                         game_obj->m_objectID == 4);
+                         
+        bool is_ring_pad = (game_obj->m_objectType == GameObjectType::Ring || game_obj->m_objectType == GameObjectType::Pad) || 
+                           (game_obj->m_objectID == 36 || game_obj->m_objectID == 141 || game_obj->m_objectID == 1332 || 
+                            game_obj->m_objectID == 1333 || game_obj->m_objectID == 84);
 
         float dist = obj_x - player_x;
 
         if (is_hazard && dist < min_hazard_dist) {
             min_hazard_dist = dist;
             info.hazard.x_dist = dist;
-            info.hazard.y_diff = obj->getPositionY() - player_y;
+            info.hazard.y_diff = game_obj->getPositionY() - player_y;
             info.hazard.found = true;
         }
         else if (is_solid && dist < min_solid_dist) {
             min_solid_dist = dist;
             info.solid.x_dist = dist;
-            info.solid.y_diff = obj->getPositionY() - player_y;
+            info.solid.y_diff = game_obj->getPositionY() - player_y;
             info.solid.found = true;
         }
         else if (is_ring_pad && dist < min_ring_dist) {
             min_ring_dist = dist;
             info.ring_pad.x_dist = dist;
-            info.ring_pad.y_diff = obj->getPositionY() - player_y;
+            info.ring_pad.y_diff = game_obj->getPositionY() - player_y;
             info.ring_pad.found = true;
         }
     }
@@ -501,7 +516,8 @@ class $modify(MyPlayLayer, PlayLayer) {
 
         bool should_jump = (res.output > 0.5f);
         if (should_jump != m_fields->m_last_jump_input) {
-            this->handleButton(should_jump, PlayerButton::Jump, false);
+            // Explicitly cast PlayerButton to int to fit modern Geode signatures
+            this->handleButton(should_jump, static_cast<int>(PlayerButton::Jump), false);
             m_fields->m_last_jump_input = should_jump;
         }
 
@@ -527,7 +543,6 @@ class $modify(MyPlayLayer, PlayLayer) {
             float fitness = player->getPositionX();
             m_fields->m_population.setFitness(fitness);
 
-            // Removed formatted logging which can fail on certain build profiles due to STL mismatches
             log::info("Brain died.");
 
             float base_mut_rate = static_cast<float>(Mod::get()->getSettingValue<double>("mutation-rate"));
