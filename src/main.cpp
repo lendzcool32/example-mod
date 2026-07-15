@@ -214,6 +214,7 @@ public:
     cocos2d::CCLabelBMFont* m_best_fitness_label;
     cocos2d::CCDrawNode* m_draw_node;
     cocos2d::CCLayerColor* m_bg_panel;
+    cocos2d::CCLayerColor* m_visualizer_bg;
 
     static AIOverlay* create() {
         auto* ret = new AIOverlay();
@@ -259,15 +260,14 @@ public:
         m_bg_panel->addChild(m_best_fitness_label);
         m_bg_panel->addChild(m_fitness_label);
 
+        // Created a solid translucent background panel for the visualizer to guarantee absolute 2.1 compile safety (replaces drawRect)
+        m_visualizer_bg = cocos2d::CCLayerColor::create(cocos2d::ccc4(0, 0, 0, 160), 245, 160);
+        m_visualizer_bg->setPosition(cocos2d::CCPoint(win_size.width - 260, 20));
+        this->addChild(m_visualizer_bg);
+
         m_draw_node = cocos2d::CCDrawNode::create();
         m_draw_node->setPosition(cocos2d::CCPoint(win_size.width - 260, 20)); // Replaced cocos2d::ccp with cocos2d::CCPoint constructor
         this->addChild(m_draw_node);
-
-        auto* panel_outline = cocos2d::CCDrawNode::create();
-        panel_outline->setPosition(m_draw_node->getPosition());
-        // Replaced cocos2d::ccp with cocos2d::CCPoint constructor
-        panel_outline->drawRect(cocos2d::CCPoint(0, 0), cocos2d::CCPoint(245, 160), cocos2d::ccc4f(0.08f, 0.08f, 0.08f, 0.7f), 1.0f, cocos2d::ccc4f(0.6f, 0.6f, 0.6f, 0.9f));
-        this->addChild(panel_outline, -1);
 
         auto* visualizer_title = cocos2d::CCLabelBMFont::create("EXPANDED BRAIN MONITOR (12-16-8-1)", "chatFont.fnt");
         visualizer_title->setScale(0.42f);
@@ -475,10 +475,15 @@ class $modify(MyPlayLayer, PlayLayer) {
         m_fields->m_already_dead = false;
         m_fields->m_last_jump_input = false;
 
+        // Added AIOverlay to m_uiLayer instead of this to keep the HUD locked statically on screen (no camera scrolling)
         if (m_fields->m_ai_enabled) {
             m_fields->m_overlay = AIOverlay::create();
             if (m_fields->m_overlay) {
-                this->addChild(m_fields->m_overlay, 1000);
+                if (this->m_uiLayer) {
+                    this->m_uiLayer->addChild(m_fields->m_overlay, 1000);
+                } else {
+                    this->addChild(m_fields->m_overlay, 1000);
+                }
             }
         }
 
@@ -553,14 +558,20 @@ class $modify(MyPlayLayer, PlayLayer) {
                 log::info("Evolved new generation.");
             }
 
-            m_fields->m_last_jump_input = false;
-            m_fields->m_already_dead = false;
-
+            // DO NOT set m_already_dead = false here! That caused a recursive resetLevel infinite death loop!
+            // Instead, let resetLevel() handle resetting this state cleanly and safely.
             this->resetLevel();
             return;
         }
 
         PlayLayer::destroyPlayer(player, obstacle);
+    }
+
+    // Hook resetLevel to safely reset our death-tracking state after the level finishes reload mechanics
+    void resetLevel() {
+        PlayLayer::resetLevel();
+        m_fields->m_already_dead = false;
+        m_fields->m_last_jump_input = false;
     }
 
     void levelComplete() {
