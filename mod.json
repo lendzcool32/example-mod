@@ -1,17 +1,36 @@
 {
-	"geode": "$GEODE_VERSION",
-	"gd": {
-		"win": "2.2081",
-		"android": "2.2081",
-		"mac": "2.2081",
-		"ios": "2.2081"
-	},
-	"id": "$MOD_ID",
-	"name": "$MOD_NAME",
-	"version": "$MOD_VERSION",
-	"developer": "$MOD_DEVELOPER",
-	"description": "$MOD_DESCRIPTION",
-	"dependencies": {
-		"geode.node-ids": ">=v1.23.3"
-	}
+    "geode": "4.0.0",
+    "id": "neurodash.ai_bot",
+    "version": "1.0.0",
+    "name": "NeuroDash AI",
+    "developer": "NeuroDashTeam",
+    "description": "An AI bot for Geometry Dash 2.2 that trains itself using Reinforcement Learning and Genetic Neuroevolution, complete with a real-time neural network graph overlay!",
+    "dependencies": [],
+    "resources": {
+        "sprites": []
+    },
+    "settings": {
+        "ai-enabled": {
+            "name": "Enable AI Control",
+            "description": "When enabled, the AI bot takes over and learns to play the level. Disabling this returns control to you.",
+            "type": "bool",
+            "default": true
+        },
+        "population-size": {
+            "name": "Generation Population Size",
+            "description": "How many 'brains' (networks) are evaluated per generation. Larger sizes learn more thoroughly but take longer per generation.",
+            "type": "int",
+            "default": 20,
+            "min": 5,
+            "max": 100
+        },
+        "mutation-rate": {
+            "name": "Mutation Probability",
+            "description": "The chance (0.0 to 1.0) that each neural connection is mutated during evolution.",
+            "type": "float",
+            "default": 0.15,
+            "min": 0.01,
+            "max": 1.0
+        }
+    }
 }
