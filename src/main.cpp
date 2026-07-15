@@ -1,4 +1,4 @@
-#include <Geode/Geode.hpp>
+include <Geode/Geode.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/PlayerObject.hpp>
 #include <cocos2d.h> // Explicitly include Cocos2d-x headers for all classes (CCLayer, CCDrawNode, CCString, etc.)
@@ -231,7 +231,7 @@ public:
         auto win_size = cocos2d::CCDirector::sharedDirector()->getWinSize();
 
         m_bg_panel = cocos2d::CCLayerColor::create(cocos2d::ccc4(0, 0, 0, 160), 190, 120);
-        m_bg_panel->setPosition(cocos2d::ccp(10, win_size.height - 130));
+        m_bg_panel->setPosition(cocos2d::CCPoint(10, win_size.height - 130)); // Replaced cocos2d::ccp with compile-safe cocos2d::CCPoint constructor
         this->addChild(m_bg_panel);
 
         m_generation_label = cocos2d::CCLabelBMFont::create("Generation: 1", "goldFont.fnt");
@@ -249,10 +249,10 @@ public:
         m_best_fitness_label->setAnchorPoint({0, 0.5f});
         m_fitness_label->setAnchorPoint({0, 0.5f});
 
-        m_generation_label->setPosition(cocos2d::ccp(15, 100));
-        m_brain_label->setPosition(cocos2d::ccp(15, 80));
-        m_best_fitness_label->setPosition(cocos2d::ccp(15, 60));
-        m_fitness_label->setPosition(cocos2d::ccp(15, 25));
+        m_generation_label->setPosition(cocos2d::CCPoint(15, 100)); // Replaced cocos2d::ccp with cocos2d::CCPoint constructor
+        m_brain_label->setPosition(cocos2d::CCPoint(15, 80));      // Replaced cocos2d::ccp with cocos2d::CCPoint constructor
+        m_best_fitness_label->setPosition(cocos2d::CCPoint(15, 60)); // Replaced cocos2d::ccp with cocos2d::CCPoint constructor
+        m_fitness_label->setPosition(cocos2d::CCPoint(15, 25));      // Replaced cocos2d::ccp with cocos2d::CCPoint constructor
 
         m_bg_panel->addChild(m_generation_label);
         m_bg_panel->addChild(m_brain_label);
@@ -260,18 +260,19 @@ public:
         m_bg_panel->addChild(m_fitness_label);
 
         m_draw_node = cocos2d::CCDrawNode::create();
-        m_draw_node->setPosition(cocos2d::ccp(win_size.width - 260, 20));
+        m_draw_node->setPosition(cocos2d::CCPoint(win_size.width - 260, 20)); // Replaced cocos2d::ccp with cocos2d::CCPoint constructor
         this->addChild(m_draw_node);
 
         auto* panel_outline = cocos2d::CCDrawNode::create();
         panel_outline->setPosition(m_draw_node->getPosition());
-        panel_outline->drawRect(cocos2d::ccp(0, 0), cocos2d::ccp(245, 160), cocos2d::ccc4f(0.08f, 0.08f, 0.08f, 0.7f), 1.0f, cocos2d::ccc4f(0.6f, 0.6f, 0.6f, 0.9f));
+        // Replaced cocos2d::ccp with cocos2d::CCPoint constructor
+        panel_outline->drawRect(cocos2d::CCPoint(0, 0), cocos2d::CCPoint(245, 160), cocos2d::ccc4f(0.08f, 0.08f, 0.08f, 0.7f), 1.0f, cocos2d::ccc4f(0.6f, 0.6f, 0.6f, 0.9f));
         this->addChild(panel_outline, -1);
 
         auto* visualizer_title = cocos2d::CCLabelBMFont::create("EXPANDED BRAIN MONITOR (12-16-8-1)", "chatFont.fnt");
         visualizer_title->setScale(0.42f);
         visualizer_title->setOpacity(220);
-        visualizer_title->setPosition(cocos2d::ccp(win_size.width - 137, 167));
+        visualizer_title->setPosition(cocos2d::CCPoint(win_size.width - 137, 167)); // Replaced cocos2d::ccp with cocos2d::CCPoint constructor
         this->addChild(visualizer_title);
 
         return true;
@@ -307,7 +308,8 @@ public:
 
             layer_pts[l].resize(num_nodes);
             for (int i = 0; i < num_nodes; ++i) {
-                layer_pts[l][i] = cocos2d::ccp(x_pos, y_start + i * row_spacing);
+                // Replaced cocos2d::ccp with cocos2d::CCPoint constructor
+                layer_pts[l][i] = cocos2d::CCPoint(x_pos, y_start + i * row_spacing);
             }
         }
 
