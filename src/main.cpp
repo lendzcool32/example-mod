@@ -1,4 +1,4 @@
-#include <Geode/Geode.hpp>
+include <Geode/Geode.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/PlayerObject.hpp>
 #include <cocos2d.h> // Explicitly include Cocos2d-x headers for all classes (CCLayer, CCDrawNode, CCString, etc.)
@@ -459,7 +459,7 @@ class $modify(MyPlayLayer, PlayLayer) {
         bool m_ai_enabled = true;
         GeneticPopulation m_population;
         AIOverlay* m_overlay = nullptr;
-        bool m_already_dead = false;
+        bool m_is_resetting = false;
         bool m_last_jump_input = false;
     };
 
@@ -472,7 +472,7 @@ class $modify(MyPlayLayer, PlayLayer) {
         int pop_size = static_cast<int>(Mod::get()->getSettingValue<int64_t>("population-size"));
 
         m_fields->m_population = GeneticPopulation(pop_size, {12, 16, 8, 1});
-        m_fields->m_already_dead = false;
+        m_fields->m_is_resetting = false;
         m_fields->m_last_jump_input = false;
 
         // Added AIOverlay to m_uiLayer instead of this to keep the HUD locked statically on screen (no camera scrolling)
@@ -523,8 +523,8 @@ class $modify(MyPlayLayer, PlayLayer) {
 
         bool should_jump = (res.output > 0.5f);
         if (should_jump != m_fields->m_last_jump_input) {
-            // Explicitly cast PlayerButton to int to fit modern Geode signatures
-            this->handleButton(should_jump, static_cast<int>(PlayerButton::Jump), false);
+            // Direct standard integer 1 for JUMP button (safest cross-platform input parameter)
+            this->handleButton(should_jump, 1, false);
             m_fields->m_last_jump_input = should_jump;
         }
 
@@ -544,14 +544,19 @@ class $modify(MyPlayLayer, PlayLayer) {
 
     void destroyPlayer(PlayerObject* player, GameObject* obstacle) {
         if (m_fields->m_ai_enabled) {
-            // Only handle death triggers on player 1 (ignores player 2 / dual-mode duplicates)
+            // Filter: Ignore virtual death evaluations on secondary player/clones
             if (player != m_player1) {
                 PlayLayer::destroyPlayer(player, obstacle);
                 return;
             }
 
-            if (m_fields->m_already_dead) return;
-            m_fields->m_already_dead = true;
+            // State check: Bypasses duplicates during the active resetting sequence
+            if (m_fields->m_is_resetting) {
+                PlayLayer::destroyPlayer(player, obstacle);
+                return;
+            }
+
+            m_fields->m_is_resetting = true;
 
             float fitness = player->getPositionX();
             m_fields->m_population.setFitness(fitness);
@@ -578,7 +583,7 @@ class $modify(MyPlayLayer, PlayLayer) {
     // Hook resetLevel to safely reset our death-tracking state after the level finishes reload mechanics
     void resetLevel() {
         PlayLayer::resetLevel();
-        m_fields->m_already_dead = false;
+        m_fields->m_is_resetting = false;
         m_fields->m_last_jump_input = false;
     }
 
