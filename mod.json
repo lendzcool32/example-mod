@@ -1,5 +1,11 @@
 {
     "geode": "4.0.0",
+    "gd": {
+        "win": "2.204",
+        "mac": "*",
+        "android": "*",
+        "ios": "*"
+    },
     "id": "neurodash.ai_bot",
     "version": "1.0.0",
     "name": "NeuroDash AI",
