@@ -1,100 +1,605 @@
-/**
- * Include the Geode headers.
- */
-#include <Geode/Geode.hpp>
+include <Geode/Geode.hpp>
+#include <Geode/modify/PlayLayer.hpp>
+#include <Geode/modify/PlayerObject.hpp>
+#include <vector>
+#include <cmath>
+#include <cstdlib>
+#include <random>
+#include <algorithm>
+#include <string>
 
-/**
- * Brings cocos2d and all Geode namespaces to the current scope.
- */
 using namespace geode::prelude;
 
-/**
- * `$modify` lets you extend and modify GD's classes.
- * To hook a function in Geode, simply $modify the class
- * and write a new function definition with the signature of
- * the function you want to hook.
- *
- * Here we use the overloaded `$modify` macro to set our own class name,
- * so that we can use it for button callbacks.
- *
- * Notice the header being included, you *must* include the header for
- * the class you are modifying, or you will get a compile error.
- *
- * Another way you could do this is like this:
- *
- * struct MyMenuLayer : Modify<MyMenuLayer, MenuLayer> {};
- */
-#include <Geode/modify/MenuLayer.hpp>
-class $modify(MyMenuLayer, MenuLayer) {
-	/**
-	 * Typically classes in GD are initialized using the `init` function, (though not always!),
-	 * so here we use it to add our own button to the bottom menu.
-	 *
-	 * Note that for all hooks, your signature has to *match exactly*,
-	 * `void init()` would not place a hook!
-	*/
-	bool init() {
-		/**
-		 * We call the original init function so that the
-		 * original class is properly initialized.
-		 */
-		if (!MenuLayer::init()) {
-			return false;
-		}
+// ==========================================
+// 1. EXPANDED NEURAL NETWORK & REINFORCEMENT LEARNING
+// ==========================================
 
-		/**
-		 * You can use methods from the `geode::log` namespace to log messages to the console,
-		 * being useful for debugging and such. See this page for more info about logging:
-		 * https://docs.geode-sdk.org/tutorials/logging
-		*/
-		log::debug("Hello from my MenuLayer::init hook! This layer has {} children.", this->getChildrenCount());
+struct FeedForwardResult {
+    std::vector<float> inputs;                     // Input Layer (12 values)
+    std::vector<std::vector<float>> hidden_layers; // Hidden Layers (Layer 1: 16 values, Layer 2: 8 values)
+    float output;                                  // Output Layer (1 value)
+};
 
-		/**
-		 * See this page for more info about buttons
-		 * https://docs.geode-sdk.org/tutorials/buttons
-		*/
-		auto myButton = CCMenuItemSpriteExtra::create(
-			CCSprite::createWithSpriteFrameName("GJ_likeBtn_001.png"),
-			this,
-			/**
-			 * Here we use the name we set earlier for our modify class.
-			*/
-			menu_selector(MyMenuLayer::onMyButton)
-		);
+class NeuralNetwork {
+public:
+    std::vector<int> topology; // Typically {12, 16, 8, 1}
+    std::vector<std::vector<std::vector<float>>> weights; // weights[layer][from_neuron][to_neuron]
+    std::vector<std::vector<float>> biases; // biases[layer][neuron]
 
-		/**
-		 * Here we access the `bottom-menu` node by its ID, and add our button to it.
-		 * Node IDs are a Geode feature, see this page for more info about it:
-		 * https://docs.geode-sdk.org/tutorials/nodetree
-		*/
-		auto menu = this->getChildByID("bottom-menu");
-		menu->addChild(myButton);
+    NeuralNetwork() {}
 
-		/**
-		 * The `_spr` string literal operator just prefixes the string with
-		 * your mod id followed by a slash. This is good practice for setting your own node ids.
-		*/
-		myButton->setID("my-button"_spr);
+    NeuralNetwork(const std::vector<int>& topo) {
+        topology = topo;
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::uniform_real_distribution<float> dis(-1.0f, 1.0f);
 
-		/**
-		 * We update the layout of the menu to ensure that our button is properly placed.
-		 * This is yet another Geode feature, see this page for more info about it:
-		 * https://docs.geode-sdk.org/tutorials/layouts
-		*/
-		menu->updateLayout();
+        // Build weight matrices and bias vectors for each layer connection
+        for (size_t i = 0; i < topology.size() - 1; ++i) {
+            int num_inputs = topology[i];
+            int num_outputs = topology[i + 1];
 
-		/**
-		 * We return `true` to indicate that the class was properly initialized.
-		 */
-		return true;
-	}
+            std::vector<std::vector<float>> layer_weights;
+            std::vector<float> layer_biases;
 
-	/**
-	 * This is the callback function for the button we created earlier.
-	 * The signature for button callbacks must always be the same,
-	 * return type `void` and taking a `CCObject*`.
-	*/
-	void onMyButton(CCObject*) {
-		FLAlertLayer::create("Geode", "Hello from my custom mod!", "OK")->show();
-	}
+            for (int j = 0; j < num_inputs; ++j) {
+                std::vector<float> neuron_weights;
+                for (int k = 0; k < num_outputs; ++k) {
+                    neuron_weights.push_back(dis(gen));
+                }
+                layer_weights.push_back(neuron_weights);
+            }
+
+            for (int k = 0; k < num_outputs; ++k) {
+                layer_biases.push_back(dis(gen));
+            }
+
+            weights.push_back(layer_weights);
+            biases.push_back(layer_biases);
+        }
+    }
+
+    float sigmoid(float x) const {
+        return 1.0f / (1.0f + std::exp(-x));
+    }
+
+    // Evaluates the full network and records detailed activation states of all layers
+    FeedForwardResult feedForwardDetailed(const std::vector<float>& inputs) const {
+        FeedForwardResult res;
+        res.inputs = inputs;
+
+        std::vector<float> current_vals = inputs;
+
+        // Propagate forward through hidden layers
+        for (size_t i = 0; i < weights.size() - 1; ++i) {
+            std::vector<float> next_vals(topology[i + 1], 0.0f);
+
+            for (int k = 0; k < topology[i + 1]; ++k) {
+                float sum = biases[i][k];
+                for (int j = 0; j < topology[i]; ++j) {
+                    sum += current_vals[j] * weights[i][j][k];
+                }
+                next_vals[k] = sigmoid(sum);
+            }
+            res.hidden_layers.push_back(next_vals);
+            current_vals = next_vals;
+        }
+
+        // Final transition to the single Output layer (JUMP / CLICK)
+        size_t last_idx = weights.size() - 1;
+        float sum_out = biases[last_idx][0];
+        for (int j = 0; j < topology[last_idx]; ++j) {
+            sum_out += current_vals[j] * weights[last_idx][j][0];
+        }
+        res.output = sigmoid(sum_out);
+
+        return res;
+    }
+
+    // Mutates connection weights and biases using a normal distribution
+    void mutate(float rate) {
+        std::random_device rd;
+        std::mt19937 gen(rd());
+        std::normal_distribution<float> dis(0.0f, 0.25f); // slightly wider mutation steps for deep networks
+        std::uniform_real_distribution<float> rand_dis(0.0f, 1.0f);
+
+        for (size_t i = 0; i < weights.size(); ++i) {
+            for (size_t j = 0; j < weights[i].size(); ++j) {
+                for (size_t k = 0; k < weights[i][j].size(); ++k) {
+                    if (rand_dis(gen) < rate) {
+                        weights[i][j][k] += dis(gen);
+                        weights[i][j][k] = std::clamp(weights[i][j][k], -2.0f, 2.0f);
+                    }
+                }
+            }
+
+            for (size_t k = 0; k < biases[i].size(); ++k) {
+                if (rand_dis(gen) < rate) {
+                    biases[i][k] += dis(gen);
+                    biases[i][k] = std::clamp(biases[i][k], -2.0f, 2.0f);
+                }
+            }
+        }
+    }
+};
+
+struct BrainInstance {
+    NeuralNetwork network;
+    float fitness = 0.0f;
+    int index = 0;
+};
+
+class GeneticPopulation {
+public:
+    std::vector<BrainInstance> population;
+    int current_generation = 1;
+    int current_brain_idx = 0;
+    float best_fitness_all_time = 0.0f;
+    NeuralNetwork best_network_all_time;
+    bool has_best_ever = false;
+
+    GeneticPopulation() {}
+
+    GeneticPopulation(int size, const std::vector<int>& topology) {
+        population.resize(size);
+        for (int i = 0; i < size; ++i) {
+            population[i].network = NeuralNetwork(topology);
+            population[i].fitness = 0.0f;
+            population[i].index = i;
+        }
+    }
+
+    BrainInstance& getCurrentBrain() {
+        return population[current_brain_idx];
+    }
+
+    void setFitness(float fit) {
+        population[current_brain_idx].fitness = fit;
+        if (fit > best_fitness_all_time) {
+            best_fitness_all_time = fit;
+            best_network_all_time = population[current_brain_idx].network;
+            has_best_ever = true;
+        }
+    }
+
+    // Advanced natural selection with champion locks and scaled mutation rates
+    void evolve(float mutation_rate) {
+        int best_idx = 0;
+        float max_fitness = -1.0f;
+        for (size_t i = 0; i < population.size(); ++i) {
+            if (population[i].fitness > max_fitness) {
+                max_fitness = population[i].fitness;
+                best_idx = i;
+            }
+        }
+
+        NeuralNetwork best_nn = population[best_idx].network;
+
+        // Elite lock: Keep this generation's champion untouched at index 0
+        population[0].network = best_nn;
+        population[0].fitness = 0.0f;
+
+        // Preservation lock: Keep the absolute historical master champion at index 1
+        if (has_best_ever) {
+            population[1].network = best_network_all_time;
+            population[1].fitness = 0.0f;
+        }
+
+        // Fill remaining organism slots with mutated clones of the champion
+        size_t start_idx = has_best_ever ? 2 : 1;
+        for (size_t i = start_idx; i < population.size(); ++i) {
+            population[i].network = best_nn;
+            
+            // Scaled mutation: higher indexes receive higher mutation rates to explore new boundaries,
+            // while lower indexes stay close to the champion to refine sub-pixel timings.
+            float rate = mutation_rate + 0.18f * (static_cast<float>(i) / population.size());
+            population[i].network.mutate(rate);
+            population[i].fitness = 0.0f;
+        }
+
+        current_generation++;
+        current_brain_idx = 0;
+    }
+
+    bool nextBrain(float mutation_rate) {
+        current_brain_idx++;
+        if (current_brain_idx >= population.size()) {
+            evolve(mutation_rate);
+            return true;
+        }
+        return false;
+    }
+};
+
+// ==========================================
+// 2. REAL-TIME MULTI-LAYER NEURAL GRAPH OVERLAY
+// ==========================================
+
+class AIOverlay : public cocos2d::CCLayer {
+public:
+    cocos2d::CCLabelBMFont* m_generation_label;
+    cocos2d::CCLabelBMFont* m_brain_label;
+    cocos2d::CCLabelBMFont* m_fitness_label;
+    cocos2d::CCLabelBMFont* m_best_fitness_label;
+    cocos2d::CCDrawNode* m_draw_node;
+    cocos2d::CCLayerColor* m_bg_panel;
+
+    static AIOverlay* create() {
+        auto* ret = new AIOverlay();
+        if (ret && ret->init()) {
+            ret->autorelease();
+            return ret;
+        }
+        CC_SAFE_DELETE(ret);
+        return nullptr;
+    }
+
+    bool init() override {
+        if (!CCLayer::init()) return false;
+
+        auto win_size = cocos2d::CCDirector::sharedDirector()->getWinSize();
+
+        // 1. Left translucent panel for statistical data
+        m_bg_panel = cocos2d::CCLayerColor::create(cocos2d::ccc4(0, 0, 0, 160), 190, 120);
+        m_bg_panel->setPosition(cocos2d::ccp(10, win_size.height - 130));
+        this->addChild(m_bg_panel);
+
+        m_generation_label = cocos2d::CCLabelBMFont::create("Generation: 1", "goldFont.fnt");
+        m_brain_label = cocos2d::CCLabelBMFont::create("Brain: 1/20", "goldFont.fnt");
+        m_best_fitness_label = cocos2d::CCLabelBMFont::create("Best Dist: 0.0", "goldFont.fnt");
+        m_fitness_label = cocos2d::CCLabelBMFont::create("Current Dist: 0.0", "chatFont.fnt");
+
+        m_generation_label->setScale(0.55f);
+        m_brain_label->setScale(0.50f);
+        m_best_fitness_label->setScale(0.50f);
+        m_fitness_label->setScale(0.60f);
+
+        m_generation_label->setAnchorPoint({0, 0.5f});
+        m_brain_label->setAnchorPoint({0, 0.5f});
+        m_best_fitness_label->setAnchorPoint({0, 0.5f});
+        m_fitness_label->setAnchorPoint({0, 0.5f});
+
+        m_generation_label->setPosition(cocos2d::ccp(15, 100));
+        m_brain_label->setPosition(cocos2d::ccp(15, 80));
+        m_best_fitness_label->setPosition(cocos2d::ccp(15, 60));
+        m_fitness_label->setPosition(cocos2d::ccp(15, 25));
+
+        m_bg_panel->addChild(m_generation_label);
+        m_bg_panel->addChild(m_brain_label);
+        m_bg_panel->addChild(m_best_fitness_label);
+        m_bg_panel->addChild(m_fitness_label);
+
+        // 2. Deep Brain Network Graph Panel (Bottom Right)
+        m_draw_node = cocos2d::CCDrawNode::create();
+        m_draw_node->setPosition(cocos2d::ccp(win_size.width - 260, 20));
+        this->addChild(m_draw_node);
+
+        // Draw bounding outline panel for the neural grid
+        auto* panel_outline = cocos2d::CCDrawNode::create();
+        panel_outline->setPosition(m_draw_node->getPosition());
+        panel_outline->drawRect(cocos2d::ccp(0, 0), cocos2d::ccp(245, 160), cocos2d::ccc4f(0.08f, 0.08f, 0.08f, 0.7f), 1.0f, cocos2d::ccc4f(0.6f, 0.6f, 0.6f, 0.9f));
+        this->addChild(panel_outline, -1);
+
+        auto* visualizer_title = cocos2d::CCLabelBMFont::create("EXPANDED BRAIN MONITOR (12-16-8-1)", "chatFont.fnt");
+        visualizer_title->setScale(0.42f);
+        visualizer_title->setOpacity(220);
+        visualizer_title->setPosition(cocos2d::ccp(win_size.width - 137, 167));
+        this->addChild(visualizer_title);
+
+        return true;
+    }
+
+    // Renders any multi-layer neural architecture dynamically! Centered, scaled, and clean.
+    void drawNeuralNetworkGraph(const NeuralNetwork& nn, const FeedForwardResult& res) {
+        m_draw_node->clear();
+
+        size_t num_layers = nn.topology.size();
+        if (num_layers < 2) return;
+
+        // Graphic dimensions
+        float panel_width = 245.0f;
+        float panel_height = 160.0f;
+        float left_margin = 15.0f;
+        float right_margin = panel_width - 15.0f;
+        float col_spacing = (right_margin - left_margin) / (num_layers - 1);
+        float neuron_radius = 4.0f; // fits large layers comfortably
+
+        // 1. Calculate and map the coordinates of every neuron in the topology
+        std::vector<std::vector<cocos2d::CCPoint>> layer_pts(num_layers);
+
+        for (size_t l = 0; l < num_layers; ++l) {
+            int num_nodes = nn.topology[l];
+            float x_pos = left_margin + l * col_spacing;
+
+            // Compress nodes vertically if the layer is heavy (e.g. 16 nodes)
+            float max_usable_height = 135.0f;
+            float row_spacing = 15.0f;
+            if (num_nodes > 1) {
+                row_spacing = std::min(max_usable_height / (num_nodes - 1), 16.0f);
+            }
+
+            float y_center = panel_height / 2.0f;
+            float y_start = y_center - ((num_nodes - 1) * row_spacing) / 2.0f;
+
+            layer_pts[l].resize(num_nodes);
+            for (int i = 0; i < num_nodes; ++i) {
+                layer_pts[l][i] = cocos2d::ccp(x_pos, y_start + i * row_spacing);
+            }
+        }
+
+        // 2. Draw connections (Weights) between adjacent layers
+        for (size_t l = 0; l < num_layers - 1; ++l) {
+            int num_from = nn.topology[l];
+            int num_to = nn.topology[l + 1];
+
+            for (int i = 0; i < num_from; ++i) {
+                for (int j = 0; j < num_to; ++j) {
+                    float w = nn.weights[l][i][j];
+                    // Positive weight synapses = Green lines, Negative = Red lines. Alpha = weight strength!
+                    cocos2d::ccColor4F color = (w > 0.0f) ? 
+                        cocos2d::ccc4f(0.0f, 1.0f, 0.0f, std::abs(w) * 0.45f) : 
+                        cocos2d::ccc4f(1.0f, 0.0f, 0.0f, std::abs(w) * 0.45f);
+                    m_draw_node->drawSegment(layer_pts[l][i], layer_pts[l + 1][j], 0.5f, color);
+                }
+            }
+        }
+
+        // 3. Draw nodes (Neurons) colored by their exact real-time activation values
+        for (size_t l = 0; l < num_layers; ++l) {
+            int num_nodes = nn.topology[l];
+
+            for (int i = 0; i < num_nodes; ++i) {
+                float act = 0.0f;
+                if (l == 0) {
+                    act = res.inputs[i];
+                } else if (l == num_layers - 1) {
+                    act = res.output;
+                } else {
+                    act = res.hidden_layers[l - 1][i];
+                }
+
+                cocos2d::ccColor4F fill_color;
+                if (l == num_layers - 1) {
+                    // Output Jump Node (flash gold on click commands!)
+                    fill_color = (act > 0.5f) ? 
+                        cocos2d::ccc4f(1.0f, 0.85f, 0.0f, 1.0f) : 
+                        cocos2d::ccc4f(0.12f, 0.12f, 0.12f, 1.0f);
+                } else {
+                    // Grayscale nodes corresponding to [0.0 - 1.0] activations
+                    float bounded_act = std::clamp(act, 0.0f, 1.0f);
+                    fill_color = cocos2d::ccc4f(bounded_act, bounded_act, bounded_act, 1.0f);
+                }
+
+                m_draw_node->drawSolidCircle(layer_pts[l][i], neuron_radius, 0.0f, 10, fill_color);
+                m_draw_node->drawCircle(layer_pts[l][i], neuron_radius, cocos2d::ccc4f(0.6f, 0.6f, 0.6f, 0.8f), 0.5f, 0.0f, 10);
+            }
+        }
+    }
+
+    void updateOverlay(int gen, int brain, int pop_size, float cur_fit, float best_fit, const NeuralNetwork& nn, const FeedForwardResult& res) {
+        m_generation_label->setString(fmt::format("Generation: {}", gen).c_str());
+        m_brain_label->setString(fmt::format("Brain: {}/{}", brain, pop_size).c_str());
+        m_best_fitness_label->setString(fmt::format("Best Dist: {:.1f}", best_fit).c_str());
+        m_fitness_label->setString(fmt::format("Current Dist: {:.1f}", cur_fit).c_str());
+
+        drawNeuralNetworkGraph(nn, res);
+    }
+};
+
+// ==========================================
+// 3. EFFICIENT SINGLE-PASS ENV SENSOR SCANNER
+// ==========================================
+
+struct ObstacleInfo {
+    float x_dist = 450.0f; // limits scan lookahead to reduce inputs variance
+    float y_diff = 0.0f;
+    bool found = false;
+};
+
+struct MultiObstacleInfo {
+    ObstacleInfo hazard;   // Spikes, sawblades, fires
+    ObstacleInfo solid;    // Ground blocks, slopes, slabs
+    ObstacleInfo ring_pad; // Jump rings (orbs), boost pads
+};
+
+// Iterates level objects in a single pass O(N) to prevent computational frame drops
+MultiObstacleInfo scanLevelSensors(PlayLayer* layer) {
+    MultiObstacleInfo info;
+    auto* player = layer->m_player1;
+    if (!player) return info;
+
+    float player_x = player->getPositionX();
+    float player_y = player->getPositionY();
+    float scan_limit = 450.0f;
+
+    float min_hazard_dist = scan_limit;
+    float min_solid_dist = scan_limit;
+    float min_ring_dist = scan_limit;
+
+    auto* objects = layer->m_objects;
+    if (!objects) return info;
+
+    for (auto* obj : cocos2d::CCArrayExt<GameObject*>(objects)) {
+        if (!obj) continue;
+
+        float obj_x = obj->getPositionX();
+        // Skip objects behind the player or outside our vision window
+        if (obj_x <= player_x || obj_x > player_x + scan_limit) continue;
+
+        // Read Geode bindings directly for object classifications
+        bool is_hazard = obj->m_isDeadly || obj->m_isHazard;
+        bool is_solid = obj->m_isSolid && !is_hazard;
+        bool is_ring_pad = obj->m_isRing || obj->m_isPad;
+
+        float dist = obj_x - player_x;
+
+        if (is_hazard && dist < min_hazard_dist) {
+            min_hazard_dist = dist;
+            info.hazard.x_dist = dist;
+            info.hazard.y_diff = obj->getPositionY() - player_y;
+            info.hazard.found = true;
+        }
+        else if (is_solid && dist < min_solid_dist) {
+            min_solid_dist = dist;
+            info.solid.x_dist = dist;
+            info.solid.y_diff = obj->getPositionY() - player_y;
+            info.solid.found = true;
+        }
+        else if (is_ring_pad && dist < min_ring_dist) {
+            min_ring_dist = dist;
+            info.ring_pad.x_dist = dist;
+            info.ring_pad.y_diff = obj->getPositionY() - player_y;
+            info.ring_pad.found = true;
+        }
+    }
+    return info;
+}
+
+// ==========================================
+// 4. LEVEL hooks & GAME LOOP CONTROL
+// ==========================================
+
+class $modify(MyPlayLayer, PlayLayer) {
+    struct Fields {
+        bool m_ai_enabled = true;
+        GeneticPopulation m_population;
+        AIOverlay* m_overlay = nullptr;
+        bool m_already_dead = false;
+        bool m_last_jump_input = false;
+    };
+
+    bool init(GJGameLevel* level, bool usePracticeMode, bool isPlaytest) {
+        if (!PlayLayer::init(level, usePracticeMode, isPlaytest)) {
+            return false;
+        }
+
+        m_fields->m_ai_enabled = Mod::get()->getSettingValue<bool>("ai-enabled");
+        int pop_size = static_cast<int>(Mod::get()->getSettingValue<int64_t>("population-size"));
+
+        // Initialize advanced deep neuro-population {12 Inputs, 16 Hidden 1, 8 Hidden 2, 1 Output}
+        m_fields->m_population = GeneticPopulation(pop_size, {12, 16, 8, 1});
+        m_fields->m_already_dead = false;
+        m_fields->m_last_jump_input = false;
+
+        // Append UI monitor
+        if (m_fields->m_ai_enabled) {
+            m_fields->m_overlay = AIOverlay::create();
+            if (m_fields->m_overlay) {
+                this->addChild(m_fields->m_overlay, 1000);
+            }
+        }
+
+        return true;
+    }
+
+    void update(float dt) {
+        PlayLayer::update(dt);
+
+        if (!m_fields->m_ai_enabled || !m_player1 || m_player1->m_isDead) return;
+
+        // 1. Gather all 12 expanded inputs via high-speed scanning
+        MultiObstacleInfo sensors = scanLevelSensors(this);
+
+        std::vector<float> inputs(12, 0.0f);
+        // [0-1] Nearest Deadly Spike / Hazard
+        inputs[0] = std::clamp(sensors.hazard.x_dist / 450.0f, 0.0f, 1.0f);
+        inputs[1] = std::clamp(sensors.hazard.y_diff / 150.0f, -1.0f, 1.0f);
+
+        // [2-3] Nearest Landable Block Platform
+        inputs[2] = std::clamp(sensors.solid.x_dist / 450.0f, 0.0f, 1.0f);
+        inputs[3] = std::clamp(sensors.solid.y_diff / 150.0f, -1.0f, 1.0f);
+
+        // [4-5] Nearest Orb / Booster Pad
+        inputs[4] = std::clamp(sensors.ring_pad.x_dist / 300.0f, 0.0f, 1.0f);
+        inputs[5] = std::clamp(sensors.ring_pad.y_diff / 150.0f, -1.0f, 1.0f);
+
+        // [6] Player Y-Velocity (Vertical trajectory)
+        inputs[6] = std::clamp(static_cast<float>(m_player1->m_yVelocity) / 15.0f, -1.0f, 1.0f);
+        
+        // [7] Player X-Velocity (Speed portal states)
+        inputs[7] = std::clamp(static_cast<float>(m_player1->m_xVelocity) / 15.0f, 0.0f, 1.0f);
+
+        // [8] Ground footing status
+        inputs[8] = m_player1->m_isOnGround ? 1.0f : 0.0f;
+
+        // [9] Gravity orientation status (flipped vs regular)
+        inputs[9] = m_player1->m_isUpsideDown ? 1.0f : 0.0f;
+
+        // [10] Flying Mode Check (Ship, UFO, Wave, Swing)
+        inputs[10] = (m_player1->m_isShip || m_player1->m_isBird || m_player1->m_isDart || m_player1->m_isSwing) ? 1.0f : 0.0f;
+
+        // [11] Gravity Swap Mode Check (Ball, Spider clicks)
+        inputs[11] = (m_player1->m_isBall || m_player1->m_isSpider) ? 1.0f : 0.0f;
+
+        // 2. Compute activations in deep network candidate
+        BrainInstance& active_brain = m_fields->m_population.getCurrentBrain();
+        FeedForwardResult res = active_brain.network.feedForwardDetailed(inputs);
+
+        // 3. Command player input based on final neuron output
+        bool should_jump = (res.output > 0.5f);
+        if (should_jump != m_fields->m_last_jump_input) {
+            this->handleButton(should_jump, PlayerButton::Jump, false);
+            m_fields->m_last_jump_input = should_jump;
+        }
+
+        // 4. Redraw HUD with expanded neural network details
+        if (m_fields->m_overlay) {
+            float cur_fit = m_player1->getPositionX();
+            m_fields->m_overlay->updateOverlay(
+                m_fields->m_population.current_generation,
+                m_fields->m_population.current_brain_idx + 1,
+                m_fields->m_population.population.size(),
+                cur_fit,
+                m_fields->m_population.best_fitness_all_time,
+                active_brain.network,
+                res
+            );
+        }
+    }
+
+    void destroyPlayer(PlayerObject* player, GameObject* obstacle) {
+        if (m_fields->m_ai_enabled) {
+            if (m_fields->m_already_dead) return;
+            m_fields->m_already_dead = true;
+
+            float fitness = player->getPositionX();
+            m_fields->m_population.setFitness(fitness);
+
+            log::info("Brain #{} died in Gen {}. Distance: {:.1f}. Best Distance: {:.1f}",
+                      m_fields->m_population.current_brain_idx + 1,
+                      m_fields->m_population.current_generation,
+                      fitness,
+                      m_fields->m_population.best_fitness_all_time);
+
+            float base_mut_rate = static_cast<float>(Mod::get()->getSettingValue<double>("mutation-rate"));
+            bool evolved = m_fields->m_population.nextBrain(base_mut_rate);
+            if (evolved) {
+                log::info("Generation completed! Evolved Generation {}.", m_fields->m_population.current_generation);
+            }
+
+            m_fields->m_last_jump_input = false;
+            m_fields->m_already_dead = false;
+
+            this->resetLevel();
+            return;
+        }
+
+        PlayLayer::destroyPlayer(player, obstacle);
+    }
+
+    void levelComplete() {
+        if (m_fields->m_ai_enabled) {
+            float fitness = m_player1->getPositionX() + 100000.0f;
+            m_fields->m_population.setFitness(fitness);
+            
+            log::info("SUCCESS! Brain #{} in Gen {} successfully beat the level!", 
+                      m_fields->m_population.current_brain_idx + 1, 
+                      m_fields->m_population.current_generation);
+
+            float base_mut_rate = static_cast<float>(Mod::get()->getSettingValue<double>("mutation-rate"));
+            m_fields->m_population.nextBrain(base_mut_rate);
+        }
+
+        PlayLayer::levelComplete();
+    }
 };
