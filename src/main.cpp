@@ -1,4 +1,4 @@
-#include <Geode/Geode.hpp>
+include <Geode/Geode.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/PlayerObject.hpp>
 #include <cocos2d.h> // Explicitly include Cocos2d-x headers for all classes (CCLayer, CCDrawNode, CCString, etc.)
@@ -353,7 +353,7 @@ public:
                     fill_color = cocos2d::ccc4f(bounded_act, bounded_act, bounded_act, 1.0f);
                 }
 
-                // Cocos2d-x 2.1 trick: draw a slightly larger dot for the outline first, then the actual dot
+                // Cocos2d-x 2.1: Draw larger outline dot first, then inner dot
                 m_draw_node->drawDot(layer_pts[l][i], neuron_radius + 0.5f, cocos2d::ccc4f(0.5f, 0.5f, 0.5f, 0.8f));
                 m_draw_node->drawDot(layer_pts[l][i], neuron_radius, fill_color);
             }
@@ -544,6 +544,12 @@ class $modify(MyPlayLayer, PlayLayer) {
 
     void destroyPlayer(PlayerObject* player, GameObject* obstacle) {
         if (m_fields->m_ai_enabled) {
+            // Only handle death triggers on player 1 (ignores player 2 / dual-mode duplicates)
+            if (player != m_player1) {
+                PlayLayer::destroyPlayer(player, obstacle);
+                return;
+            }
+
             if (m_fields->m_already_dead) return;
             m_fields->m_already_dead = true;
 
@@ -558,8 +564,10 @@ class $modify(MyPlayLayer, PlayLayer) {
                 log::info("Evolved new generation.");
             }
 
-            // DO NOT set m_already_dead = false here! That caused a recursive resetLevel infinite death loop!
-            // Instead, let resetLevel() handle resetting this state cleanly and safely.
+            // Let base destroyPlayer run so the engine cleanly terminates physics state & clears old collisions!
+            PlayLayer::destroyPlayer(player, obstacle);
+
+            // Then immediately trigger level reset (instantly reloads the attempt bypassing death screen wait)
             this->resetLevel();
             return;
         }
