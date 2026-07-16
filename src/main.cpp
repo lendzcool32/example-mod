@@ -1,6 +1,7 @@
 #include <Geode/Geode.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/PlayerObject.hpp>
+#include <Geode/modify/GJBaseGameLayer.hpp>
 #include <cocos2d.h> // Explicitly include Cocos2d-x headers for all classes (CCLayer, CCDrawNode, CCString, etc.)
 #include <vector>
 #include <cmath>
@@ -208,6 +209,11 @@ public:
 // Maintains learned weights, generation count, and champions across level switches and restarts!
 static GeneticPopulation g_ai_population;
 static bool g_population_initialized = false;
+static AIOverlay* g_ai_overlay = nullptr;
+static bool g_already_dead = false;
+static bool g_last_jump_input = false;
+static bool g_needs_reset = false;
+static bool g_ai_enabled = true;
 
 // ==========================================
 // 2. REAL-TIME MULTI-LAYER NEURAL GRAPH OVERLAY
@@ -394,12 +400,13 @@ struct MultiObstacleInfo {
     ObstacleInfo ring_pad; 
 };
 
-MultiObstacleInfo scanLevelSensors(PlayLayer* layer) {
+// Fixed to accept GJBaseGameLayer* so it can run smoothly inside the main GameLoop updates on 100% of platforms
+MultiObstacleInfo scanLevelSensors(GJBaseGameLayer* layer) {
     MultiObstacleInfo info;
     auto* player = layer->m_player1;
     if (!player) return info;
 
-    // Direct public member variable read to avoid Apple Clang macOS inlined getter linkage bugs!
+    // Direct public member variable read to avoid Apple Clang macOS/iOS inlined getter linkage bugs!
     float player_x = player->getPosition().x;
     float player_y = player->getPosition().y;
     float scan_limit = 450.0f;
@@ -463,63 +470,25 @@ MultiObstacleInfo scanLevelSensors(PlayLayer* layer) {
 }
 
 // ==========================================
-// 4. LEVEL HOOKS & GAME LOOP CONTROL
+// 4. MAIN GAME LOOP HOOK (UNIVERSAL ARM64/X86_64 BINDING)
 // ==========================================
 
-class $modify(MyPlayLayer, PlayLayer) {
-    struct Fields {
-        bool m_ai_enabled = true;
-        AIOverlay* m_overlay = nullptr;
-        bool m_already_dead = false;
-        bool m_last_jump_input = false;
-        bool m_needs_reset = false; // Add local, memory-safe reset request flag
-    };
-
-    bool init(GJGameLevel* level, bool usePracticeMode, bool isPlaytest) {
-        if (!PlayLayer::init(level, usePracticeMode, isPlaytest)) {
-            return false;
-        }
-
-        // Hardcode fallback to true to guarantee AI execution on Mac/Windows/Mobile regardless of setting state
-        m_fields->m_ai_enabled = true; 
-        int pop_size = static_cast<int>(Mod::get()->getSettingValue<int64_t>("population-size"));
-
-        // Global Singleton initialization (preserves the brains when swapping levels!)
-        if (!g_population_initialized) {
-            g_ai_population = GeneticPopulation(pop_size, {12, 16, 8, 1});
-            g_population_initialized = true;
-        }
-
-        m_fields->m_already_dead = false;
-        m_fields->m_last_jump_input = false;
-        m_fields->m_needs_reset = false;
-
-        // Added AIOverlay to m_uiLayer instead of this to keep the HUD locked statically on screen (no camera scrolling)
-        if (m_fields->m_ai_enabled) {
-            m_fields->m_overlay = AIOverlay::create();
-            if (m_fields->m_overlay) {
-                if (this->m_uiLayer) {
-                    this->m_uiLayer->addChild(m_fields->m_overlay, 1000);
-                } else {
-                    this->addChild(m_fields->m_overlay, 1000);
-                }
-            }
-        }
-
-        return true;
-    }
-
-    // Hook update: Virtual function on CCNode, guaranteed to hook on 100% of platforms (Windows, Mac, Android, iOS!)
-    // Bypasses non-virtual binding differences on mobile architectures.
+// Hook GJBaseGameLayer::update instead of PlayLayer::update!
+// GJBaseGameLayer::update is a core virtual function that is 100% guaranteed to exist in the vtable of every platform
+// (Windows, macOS, iOS, Android), bypassing any compiler-specific function stripping/inlining!
+class $modify(MyBaseGameLayer, GJBaseGameLayer) {
     void update(float dt) {
-        PlayLayer::update(dt);
+        GJBaseGameLayer::update(dt);
 
-        if (!m_fields->m_ai_enabled || !m_player1) return;
+        if (!g_ai_enabled || !m_player1) return;
 
         // HIGH-SPEED RESET BYPASS: Safely resets the level based on our locally-allocated, 100% stable boolean.
         // This completely bypasses any raw m_player1->m_isDead read crashes on iOS/Android memory offsets!
-        if (m_fields->m_needs_reset) {
-            this->resetLevel();
+        if (g_needs_reset) {
+            auto* play_layer = PlayLayer::get();
+            if (play_layer) {
+                play_layer->resetLevel();
+            }
             return;
         }
 
@@ -550,20 +519,20 @@ class $modify(MyPlayLayer, PlayLayer) {
         FeedForwardResult res = active_brain.network.feedForwardDetailed(inputs);
 
         bool should_jump = (res.output > 0.5f);
-        if (should_jump != m_fields->m_last_jump_input) {
+        if (should_jump != g_last_jump_input) {
             // Simulated native click: Using standard PlayerObject functions directly is 100% safe & reliable
             if (should_jump) {
                 m_player1->pushButton(PlayerButton::Jump);
             } else {
                 m_player1->releaseButton(PlayerButton::Jump);
             }
-            m_fields->m_last_jump_input = should_jump;
+            g_last_jump_input = should_jump;
         }
 
-        if (m_fields->m_overlay) {
+        if (g_ai_overlay) {
             // Fixed: Replaced raw .m_position access with public .getPosition() getter to support mobile architectures!
             float cur_fit = m_player1->getPosition().x; 
-            m_fields->m_overlay->updateOverlay(
+            g_ai_overlay->updateOverlay(
                 g_ai_population.current_generation,
                 g_ai_population.current_brain_idx + 1,
                 g_ai_population.population.size(),
@@ -574,15 +543,53 @@ class $modify(MyPlayLayer, PlayLayer) {
             );
         }
     }
+};
+
+// ==========================================
+// 5. PLAYLAYER SCENE & DESTRUCTION HOOKS
+// ==========================================
+
+class $modify(MyPlayLayer, PlayLayer) {
+    bool init(GJGameLevel* level, bool usePracticeMode, bool isPlaytest) {
+        if (!PlayLayer::init(level, usePracticeMode, isPlaytest)) {
+            return false;
+        }
+
+        // Hardcode fallback to true to guarantee AI execution on Mac/Windows/Mobile regardless of setting state
+        g_ai_enabled = true; 
+        int pop_size = static_cast<int>(Mod::get()->getSettingValue<int64_t>("population-size"));
+
+        // Global Singleton initialization (preserves the brains when swapping levels!)
+        if (!g_population_initialized) {
+            g_ai_population = GeneticPopulation(pop_size, {12, 16, 8, 1});
+            g_population_initialized = true;
+        }
+
+        g_already_dead = false;
+        g_last_jump_input = false;
+        g_needs_reset = false;
+
+        // Added AIOverlay to m_uiLayer instead of this to keep the HUD locked statically on screen (no camera scrolling)
+        g_ai_overlay = AIOverlay::create();
+        if (g_ai_overlay) {
+            if (this->m_uiLayer) {
+                this->m_uiLayer->addChild(g_ai_overlay, 1000);
+            } else {
+                this->addChild(g_ai_overlay, 1000);
+            }
+        }
+
+        return true;
+    }
 
     void destroyPlayer(PlayerObject* player, GameObject* obstacle) {
-        if (m_fields->m_ai_enabled) {
+        if (g_ai_enabled) {
             if (player == m_player1) {
                 // FIXED NOCLIP BUG: We only write fitness once on actual first collision, 
                 // but we ALWAYS allow the base PlayLayer::destroyPlayer to run below! 
                 // This guarantees the player CANNOT noclip through spikes or block edges, while maintaining perfect fitness logs.
-                if (!m_fields->m_already_dead) {
-                    m_fields->m_already_dead = true;
+                if (!g_already_dead) {
+                    g_already_dead = true;
 
                     // FIX: Capture exact coordinate BEFORE calling the base destroyPlayer (which teleports player back to 0.0!)
                     // Fixed: Replaced raw .m_position access with public .getPosition() getter to support mobile architectures!
@@ -597,8 +604,8 @@ class $modify(MyPlayLayer, PlayLayer) {
                         log::info("Evolved new generation.");
                     }
 
-                    // Securely schedule the level reset on the very next physics frame
-                    m_fields->m_needs_reset = true;
+                    // Securely schedule the level reset on the very next physics frame inside our game loop
+                    g_needs_reset = true;
                 }
             }
         }
@@ -610,13 +617,13 @@ class $modify(MyPlayLayer, PlayLayer) {
     // Hook resetLevel to safely reset our death-tracking state after the level finishes reload mechanics
     void resetLevel() {
         PlayLayer::resetLevel();
-        m_fields->m_already_dead = false;
-        m_fields->m_last_jump_input = false;
-        m_fields->m_needs_reset = false;
+        g_already_dead = false;
+        g_last_jump_input = false;
+        g_needs_reset = false;
     }
 
     void levelComplete() {
-        if (m_fields->m_ai_enabled) {
+        if (g_ai_enabled) {
             // Fixed: Replaced .m_position access with public .getPosition() getter to support mobile architectures!
             float fitness = m_player1->getPosition().x + 100000.0f;
             g_ai_population.setFitness(fitness);
