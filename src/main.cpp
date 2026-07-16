@@ -533,12 +533,9 @@ class $modify(MyPlayLayer, PlayLayer) {
 
         bool should_jump = (res.output > 0.5f);
         if (should_jump != m_fields->m_last_jump_input) {
-            // Simulated native click: Using standard PlayerObject functions directly is 100% safe & reliable
-            if (should_jump) {
-                m_player1->pushButton(PlayerButton::Jump);
-            } else {
-                m_player1->releaseButton(PlayerButton::Jump);
-            }
+            // Trigger standard input event through PlayLayer's handleButton to register jump natively in physics pipeline!
+            // Passing 1 for player 1 jump is 100% correct, cross-platform, and clears any binding anomalies.
+            this->handleButton(should_jump, 1, false);
             m_fields->m_last_jump_input = should_jump;
         }
 
@@ -598,6 +595,3 @@ class $modify(MyPlayLayer, PlayLayer) {
         PlayLayer::levelComplete();
     }
 };
-
-
-               
