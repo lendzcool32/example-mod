@@ -459,7 +459,7 @@ class $modify(MyPlayLayer, PlayLayer) {
         bool m_ai_enabled = true;
         GeneticPopulation m_population;
         AIOverlay* m_overlay = nullptr;
-        bool m_is_resetting = false;
+        bool m_already_dead = false;
         bool m_last_jump_input = false;
     };
 
@@ -472,7 +472,7 @@ class $modify(MyPlayLayer, PlayLayer) {
         int pop_size = static_cast<int>(Mod::get()->getSettingValue<int64_t>("population-size"));
 
         m_fields->m_population = GeneticPopulation(pop_size, {12, 16, 8, 1});
-        m_fields->m_is_resetting = false;
+        m_fields->m_already_dead = false;
         m_fields->m_last_jump_input = false;
 
         // Added AIOverlay to m_uiLayer instead of this to keep the HUD locked statically on screen (no camera scrolling)
@@ -493,7 +493,14 @@ class $modify(MyPlayLayer, PlayLayer) {
     void update(float dt) {
         PlayLayer::update(dt);
 
-        if (!m_fields->m_ai_enabled || !m_player1 || m_player1->m_isDead) return;
+        if (!m_fields->m_ai_enabled || !m_player1) return;
+
+        // HIGH-SPEED RESET BYPASS: If the player is dead, cleanly trigger instant restart from the update frame!
+        // This is 100% stable, clears all physics collision states, and allows the player to spawn alive.
+        if (m_player1->m_isDead) {
+            this->resetLevel();
+            return;
+        }
 
         MultiObstacleInfo sensors = scanLevelSensors(this);
 
@@ -523,8 +530,12 @@ class $modify(MyPlayLayer, PlayLayer) {
 
         bool should_jump = (res.output > 0.5f);
         if (should_jump != m_fields->m_last_jump_input) {
-            // Direct standard integer 1 for JUMP button (safest cross-platform input parameter)
-            this->handleButton(should_jump, 1, false);
+            // Simulated native click: Using standard PlayerObject functions directly is 100% safe & reliable
+            if (should_jump) {
+                m_player1->pushButton(PlayerButton::Jump);
+            } else {
+                m_player1->releaseButton(PlayerButton::Jump);
+            }
             m_fields->m_last_jump_input = should_jump;
         }
 
@@ -543,20 +554,13 @@ class $modify(MyPlayLayer, PlayLayer) {
     }
 
     void destroyPlayer(PlayerObject* player, GameObject* obstacle) {
+        // Let the base game execute its actual death processing (clears collisions, registers isDead, etc.)
+        PlayLayer::destroyPlayer(player, obstacle);
+
         if (m_fields->m_ai_enabled) {
-            // Filter: Ignore virtual death evaluations on secondary player/clones
-            if (player != m_player1) {
-                PlayLayer::destroyPlayer(player, obstacle);
-                return;
-            }
-
-            // State check: Bypasses duplicates during the active resetting sequence
-            if (m_fields->m_is_resetting) {
-                PlayLayer::destroyPlayer(player, obstacle);
-                return;
-            }
-
-            m_fields->m_is_resetting = true;
+            if (player != m_player1) return;
+            if (m_fields->m_already_dead) return;
+            m_fields->m_already_dead = true;
 
             float fitness = player->getPositionX();
             m_fields->m_population.setFitness(fitness);
@@ -568,22 +572,13 @@ class $modify(MyPlayLayer, PlayLayer) {
             if (evolved) {
                 log::info("Evolved new generation.");
             }
-
-            // Let base destroyPlayer run so the engine cleanly terminates physics state & clears old collisions!
-            PlayLayer::destroyPlayer(player, obstacle);
-
-            // Then immediately trigger level reset (instantly reloads the attempt bypassing death screen wait)
-            this->resetLevel();
-            return;
         }
-
-        PlayLayer::destroyPlayer(player, obstacle);
     }
 
     // Hook resetLevel to safely reset our death-tracking state after the level finishes reload mechanics
     void resetLevel() {
         PlayLayer::resetLevel();
-        m_fields->m_is_resetting = false;
+        m_fields->m_already_dead = false;
         m_fields->m_last_jump_input = false;
     }
 
@@ -600,3 +595,5 @@ class $modify(MyPlayLayer, PlayLayer) {
         PlayLayer::levelComplete();
     }
 };
+
+               
