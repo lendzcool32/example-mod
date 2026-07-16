@@ -468,7 +468,8 @@ class $modify(MyPlayLayer, PlayLayer) {
             return false;
         }
 
-        m_fields->m_ai_enabled = Mod::get()->getSettingValue<bool>("ai-enabled");
+        // Hardcode fallback to true to guarantee AI execution on Mac/Windows regardless of setting state
+        m_fields->m_ai_enabled = true; 
         int pop_size = static_cast<int>(Mod::get()->getSettingValue<int64_t>("population-size"));
 
         m_fields->m_population = GeneticPopulation(pop_size, {12, 16, 8, 1});
@@ -490,13 +491,15 @@ class $modify(MyPlayLayer, PlayLayer) {
         return true;
     }
 
-    void update(float dt) {
-        PlayLayer::update(dt);
+    // Hook postUpdate: In GD 2.2, RobTop shifted the main gameplay update and physics tick here.
+    // Hooking postUpdate guarantees consistent execution on Mac, Windows, and Android!
+    void postUpdate(float dt) {
+        PlayLayer::postUpdate(dt);
 
         if (!m_fields->m_ai_enabled || !m_player1) return;
 
-        // HIGH-SPEED RESET BYPASS: If the player is dead, cleanly trigger instant restart from the update frame!
-        // This is 100% stable, clears all physics collision states, and allows the player to spawn alive.
+        // HIGH-SPEED RESET BYPASS: Trigger restart inside the physics frame when dead.
+        // This lets the physics engine fully clear its collision states first, preventing instant spawndeaths!
         if (m_player1->m_isDead) {
             this->resetLevel();
             return;
@@ -595,5 +598,6 @@ class $modify(MyPlayLayer, PlayLayer) {
         PlayLayer::levelComplete();
     }
 };
+
 
                
