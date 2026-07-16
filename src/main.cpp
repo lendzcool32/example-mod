@@ -554,14 +554,17 @@ class $modify(MyPlayLayer, PlayLayer) {
     }
 
     void destroyPlayer(PlayerObject* player, GameObject* obstacle) {
-        // Let the base game execute its actual death processing (clears collisions, registers isDead, etc.)
-        PlayLayer::destroyPlayer(player, obstacle);
-
         if (m_fields->m_ai_enabled) {
-            if (player != m_player1) return;
+            if (player != m_player1) {
+                PlayLayer::destroyPlayer(player, obstacle);
+                return;
+            }
             if (m_fields->m_already_dead) return;
             m_fields->m_already_dead = true;
 
+            // FIX: Capture the player's EXACT death coordinate BEFORE calling base destroyPlayer!
+            // If called after base, the game engine has already reset the player's X to 0.0/start, 
+            // which was halting fitness updates and stalling the genetic evolution writing!
             float fitness = player->getPositionX();
             m_fields->m_population.setFitness(fitness);
 
@@ -573,6 +576,9 @@ class $modify(MyPlayLayer, PlayLayer) {
                 log::info("Evolved new generation.");
             }
         }
+
+        // Execute the base game's actual death processing (clears collisions, registers isDead, etc.) AFTER recording fitness!
+        PlayLayer::destroyPlayer(player, obstacle);
     }
 
     // Hook resetLevel to safely reset our death-tracking state after the level finishes reload mechanics
