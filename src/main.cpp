@@ -206,7 +206,8 @@ public:
 // ==========================================
 // PERSISTENT BRAIN SINGLETON (KNOWLEDGE RETENTION)
 // ==========================================
-// Maintains learned weights, generation count, and champions across level switches and restarts!
+class AIOverlay; // Forward declaration (tells the C++ compiler AIOverlay is a class so we can declare a pointer to it!)
+
 static GeneticPopulation g_ai_population;
 static bool g_population_initialized = false;
 static AIOverlay* g_ai_overlay = nullptr;
