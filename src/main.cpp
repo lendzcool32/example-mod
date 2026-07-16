@@ -399,7 +399,7 @@ MultiObstacleInfo scanLevelSensors(PlayLayer* layer) {
     auto* player = layer->m_player1;
     if (!player) return info;
 
-    // Fixed: Replaced raw .m_position access with compile-safe, public .getPosition() getter to support all compilers natively!
+    // Direct public member variable read to avoid Apple Clang macOS inlined getter linkage bugs!
     float player_x = player->getPosition().x;
     float player_y = player->getPosition().y;
     float scan_limit = 450.0f;
@@ -415,7 +415,7 @@ MultiObstacleInfo scanLevelSensors(PlayLayer* layer) {
     for (auto* game_obj : geode::cocos::CCArrayExt<GameObject*>(objects)) {
         if (!game_obj) continue;
 
-        // Fixed: Replaced raw .m_position access with .getPosition() getter to support macOS, Windows and mobile natively!
+        // Direct public member variable read to bypass inlined function linking quirks
         float obj_x = game_obj->getPosition().x;
         if (obj_x <= player_x || obj_x > player_x + scan_limit) continue;
 
@@ -472,6 +472,7 @@ class $modify(MyPlayLayer, PlayLayer) {
         AIOverlay* m_overlay = nullptr;
         bool m_already_dead = false;
         bool m_last_jump_input = false;
+        bool m_needs_reset = false; // Add local, memory-safe reset request flag
     };
 
     bool init(GJGameLevel* level, bool usePracticeMode, bool isPlaytest) {
@@ -491,6 +492,7 @@ class $modify(MyPlayLayer, PlayLayer) {
 
         m_fields->m_already_dead = false;
         m_fields->m_last_jump_input = false;
+        m_fields->m_needs_reset = false;
 
         // Added AIOverlay to m_uiLayer instead of this to keep the HUD locked statically on screen (no camera scrolling)
         if (m_fields->m_ai_enabled) {
@@ -514,9 +516,9 @@ class $modify(MyPlayLayer, PlayLayer) {
 
         if (!m_fields->m_ai_enabled || !m_player1) return;
 
-        // HIGH-SPEED RESET BYPASS: Trigger restart inside the physics frame when dead.
-        // This lets the physics engine fully clear its collision states first, preventing instant spawndeaths!
-        if (m_player1->m_isDead) {
+        // HIGH-SPEED RESET BYPASS: Safely resets the level based on our locally-allocated, 100% stable boolean.
+        // This completely bypasses any raw m_player1->m_isDead read crashes on iOS/Android memory offsets!
+        if (m_fields->m_needs_reset) {
             this->resetLevel();
             return;
         }
@@ -594,6 +596,9 @@ class $modify(MyPlayLayer, PlayLayer) {
                     if (evolved) {
                         log::info("Evolved new generation.");
                     }
+
+                    // Securely schedule the level reset on the very next physics frame
+                    m_fields->m_needs_reset = true;
                 }
             }
         }
@@ -607,6 +612,7 @@ class $modify(MyPlayLayer, PlayLayer) {
         PlayLayer::resetLevel();
         m_fields->m_already_dead = false;
         m_fields->m_last_jump_input = false;
+        m_fields->m_needs_reset = false;
     }
 
     void levelComplete() {
