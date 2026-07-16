@@ -1,4 +1,4 @@
-#include <Geode/Geode.hpp>
+include <Geode/Geode.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/PlayerObject.hpp>
 #include <cocos2d.h> // Explicitly include Cocos2d-x headers for all classes (CCLayer, CCDrawNode, CCString, etc.)
@@ -201,6 +201,13 @@ public:
         return false;
     }
 };
+
+// ==========================================
+// PERSISTENT BRAIN SINGLETON (KNOWLEDGE RETENTION)
+// ==========================================
+// Maintains learned weights, generation count, and champions across level switches and restarts!
+static GeneticPopulation g_ai_population;
+static bool g_population_initialized = false;
 
 // ==========================================
 // 2. REAL-TIME MULTI-LAYER NEURAL GRAPH OVERLAY
@@ -457,7 +464,6 @@ MultiObstacleInfo scanLevelSensors(PlayLayer* layer) {
 class $modify(MyPlayLayer, PlayLayer) {
     struct Fields {
         bool m_ai_enabled = true;
-        GeneticPopulation m_population;
         AIOverlay* m_overlay = nullptr;
         bool m_already_dead = false;
         bool m_last_jump_input = false;
@@ -472,7 +478,12 @@ class $modify(MyPlayLayer, PlayLayer) {
         m_fields->m_ai_enabled = true; 
         int pop_size = static_cast<int>(Mod::get()->getSettingValue<int64_t>("population-size"));
 
-        m_fields->m_population = GeneticPopulation(pop_size, {12, 16, 8, 1});
+        // Global Singleton initialization (preserves the brains when swapping levels!)
+        if (!g_population_initialized) {
+            g_ai_population = GeneticPopulation(pop_size, {12, 16, 8, 1});
+            g_population_initialized = true;
+        }
+
         m_fields->m_already_dead = false;
         m_fields->m_last_jump_input = false;
 
@@ -528,25 +539,28 @@ class $modify(MyPlayLayer, PlayLayer) {
         inputs[10] = (m_player1->m_isShip || m_player1->m_isBird || m_player1->m_isDart || m_player1->m_isSwing) ? 1.0f : 0.0f;
         inputs[11] = (m_player1->m_isBall || m_player1->m_isSpider) ? 1.0f : 0.0f;
 
-        BrainInstance& active_brain = m_fields->m_population.getCurrentBrain();
+        BrainInstance& active_brain = g_ai_population.getCurrentBrain();
         FeedForwardResult res = active_brain.network.feedForwardDetailed(inputs);
 
         bool should_jump = (res.output > 0.5f);
         if (should_jump != m_fields->m_last_jump_input) {
-            // Trigger standard input event through PlayLayer's handleButton to register jump natively in physics pipeline!
-            // Passing 1 for player 1 jump is 100% correct, cross-platform, and clears any binding anomalies.
-            this->handleButton(should_jump, 1, false);
+            // Simulated native click: Using standard PlayerObject functions directly is 100% safe & reliable
+            if (should_jump) {
+                m_player1->pushButton(PlayerButton::Jump);
+            } else {
+                m_player1->releaseButton(PlayerButton::Jump);
+            }
             m_fields->m_last_jump_input = should_jump;
         }
 
         if (m_fields->m_overlay) {
             float cur_fit = m_player1->getPositionX();
             m_fields->m_overlay->updateOverlay(
-                m_fields->m_population.current_generation,
-                m_fields->m_population.current_brain_idx + 1,
-                m_fields->m_population.population.size(),
+                g_ai_population.current_generation,
+                g_ai_population.current_brain_idx + 1,
+                g_ai_population.population.size(),
                 cur_fit,
-                m_fields->m_population.best_fitness_all_time,
+                g_ai_population.best_fitness_all_time,
                 active_brain.network,
                 res
             );
@@ -555,29 +569,29 @@ class $modify(MyPlayLayer, PlayLayer) {
 
     void destroyPlayer(PlayerObject* player, GameObject* obstacle) {
         if (m_fields->m_ai_enabled) {
-            if (player != m_player1) {
-                PlayLayer::destroyPlayer(player, obstacle);
-                return;
-            }
-            if (m_fields->m_already_dead) return;
-            m_fields->m_already_dead = true;
+            if (player == m_player1) {
+                // FIXED NOCLIP BUG: We only write fitness once on actual first collision, 
+                // but we ALWAYS allow the base PlayLayer::destroyPlayer to run below! 
+                // This guarantees the player CANNOT noclip through spikes or block edges, while maintaining perfect fitness logs.
+                if (!m_fields->m_already_dead) {
+                    m_fields->m_already_dead = true;
 
-            // FIX: Capture the player's EXACT death coordinate BEFORE calling base destroyPlayer!
-            // If called after base, the game engine has already reset the player's X to 0.0/start, 
-            // which was halting fitness updates and stalling the genetic evolution writing!
-            float fitness = player->getPositionX();
-            m_fields->m_population.setFitness(fitness);
+                    // FIX: Capture exact coordinate BEFORE calling the base destroyPlayer (which teleports player back to 0.0!)
+                    float fitness = player->getPositionX();
+                    g_ai_population.setFitness(fitness);
 
-            log::info("Brain died.");
+                    log::info("Brain died.");
 
-            float base_mut_rate = static_cast<float>(Mod::get()->getSettingValue<double>("mutation-rate"));
-            bool evolved = m_fields->m_population.nextBrain(base_mut_rate);
-            if (evolved) {
-                log::info("Evolved new generation.");
+                    float base_mut_rate = static_cast<float>(Mod::get()->getSettingValue<double>("mutation-rate"));
+                    bool evolved = g_ai_population.nextBrain(base_mut_rate);
+                    if (evolved) {
+                        log::info("Evolved new generation.");
+                    }
+                }
             }
         }
 
-        // Execute the base game's actual death processing (clears collisions, registers isDead, etc.) AFTER recording fitness!
+        // ALWAYS execute the base game's actual death processing so the engine cleanly handles collision states!
         PlayLayer::destroyPlayer(player, obstacle);
     }
 
@@ -591,11 +605,11 @@ class $modify(MyPlayLayer, PlayLayer) {
     void levelComplete() {
         if (m_fields->m_ai_enabled) {
             float fitness = m_player1->getPositionX() + 100000.0f;
-            m_fields->m_population.setFitness(fitness);
+            g_ai_population.setFitness(fitness);
             log::info("Level completed!");
 
             float base_mut_rate = static_cast<float>(Mod::get()->getSettingValue<double>("mutation-rate"));
-            m_fields->m_population.nextBrain(base_mut_rate);
+            g_ai_population.nextBrain(base_mut_rate);
         }
 
         PlayLayer::levelComplete();
