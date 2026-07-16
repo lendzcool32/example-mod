@@ -399,9 +399,9 @@ MultiObstacleInfo scanLevelSensors(PlayLayer* layer) {
     auto* player = layer->m_player1;
     if (!player) return info;
 
-    // Direct public member variable read to avoid Apple Clang macOS inlined getter linkage bugs!
-    float player_x = player->m_position.x;
-    float player_y = player->m_position.y;
+    // Fixed: Replaced raw .m_position access with compile-safe, public .getPosition() getter to support all compilers natively!
+    float player_x = player->getPosition().x;
+    float player_y = player->getPosition().y;
     float scan_limit = 450.0f;
 
     float min_hazard_dist = scan_limit;
@@ -415,8 +415,8 @@ MultiObstacleInfo scanLevelSensors(PlayLayer* layer) {
     for (auto* game_obj : geode::cocos::CCArrayExt<GameObject*>(objects)) {
         if (!game_obj) continue;
 
-        // Direct public member variable read to bypass inlined function linking quirks
-        float obj_x = game_obj->m_position.x;
+        // Fixed: Replaced raw .m_position access with .getPosition() getter to support macOS, Windows and mobile natively!
+        float obj_x = game_obj->getPosition().x;
         if (obj_x <= player_x || obj_x > player_x + scan_limit) continue;
 
         // Compile-safe bindings: Check m_objectType (enum) or specific object IDs as robust fallback definitions
@@ -440,19 +440,22 @@ MultiObstacleInfo scanLevelSensors(PlayLayer* layer) {
         if (is_hazard && dist < min_hazard_dist) {
             min_hazard_dist = dist;
             info.hazard.x_dist = dist;
-            info.hazard.y_diff = game_obj->m_position.y - player_y;
+            // Fixed: Replaced .m_position access with .getPosition()
+            info.hazard.y_diff = game_obj->getPosition().y - player_y;
             info.hazard.found = true;
         }
         else if (is_solid && dist < min_solid_dist) {
             min_solid_dist = dist;
             info.solid.x_dist = dist;
-            info.solid.y_diff = game_obj->m_position.y - player_y;
+            // Fixed: Replaced .m_position access with .getPosition()
+            info.solid.y_diff = game_obj->getPosition().y - player_y;
             info.solid.found = true;
         }
         else if (is_ring_pad && dist < min_ring_dist) {
             min_ring_dist = dist;
             info.ring_pad.x_dist = dist;
-            info.ring_pad.y_diff = game_obj->m_position.y - player_y;
+            // Fixed: Replaced .m_position access with .getPosition()
+            info.ring_pad.y_diff = game_obj->getPosition().y - player_y;
             info.ring_pad.found = true;
         }
     }
@@ -511,7 +514,7 @@ class $modify(MyPlayLayer, PlayLayer) {
 
         if (!m_fields->m_ai_enabled || !m_player1) return;
 
-        // HIGH-SPEED RESET BYPASS: Trigger restart inside the frame when dead.
+        // HIGH-SPEED RESET BYPASS: Trigger restart inside the physics frame when dead.
         // This lets the physics engine fully clear its collision states first, preventing instant spawndeaths!
         if (m_player1->m_isDead) {
             this->resetLevel();
@@ -556,7 +559,8 @@ class $modify(MyPlayLayer, PlayLayer) {
         }
 
         if (m_fields->m_overlay) {
-            float cur_fit = m_player1->m_position.x; // Direct member variable read to prevent Apple Clang macOS inlined linkage bug
+            // Fixed: Replaced raw .m_position access with public .getPosition() getter to support mobile architectures!
+            float cur_fit = m_player1->getPosition().x; 
             m_fields->m_overlay->updateOverlay(
                 g_ai_population.current_generation,
                 g_ai_population.current_brain_idx + 1,
@@ -579,8 +583,8 @@ class $modify(MyPlayLayer, PlayLayer) {
                     m_fields->m_already_dead = true;
 
                     // FIX: Capture exact coordinate BEFORE calling the base destroyPlayer (which teleports player back to 0.0!)
-                    // Direct member variable read (.m_position.x) to prevent inlined function linkage errors
-                    float fitness = player->m_position.x; 
+                    // Fixed: Replaced raw .m_position access with public .getPosition() getter to support mobile architectures!
+                    float fitness = player->getPosition().x; 
                     g_ai_population.setFitness(fitness);
 
                     log::info("Brain died.");
@@ -607,8 +611,8 @@ class $modify(MyPlayLayer, PlayLayer) {
 
     void levelComplete() {
         if (m_fields->m_ai_enabled) {
-            // Direct member variable read to bypass inlined function dylib linking errors
-            float fitness = m_player1->m_position.x + 100000.0f;
+            // Fixed: Replaced .m_position access with public .getPosition() getter to support mobile architectures!
+            float fitness = m_player1->getPosition().x + 100000.0f;
             g_ai_population.setFitness(fitness);
             log::info("Level completed!");
 
@@ -617,4 +621,5 @@ class $modify(MyPlayLayer, PlayLayer) {
         }
 
         PlayLayer::levelComplete();
-    }};
+    }
+};
